@@ -1,5 +1,5 @@
 const userSchema = require("../model/userModel");
-const otpGenerator = require("../middleware/otpGenerator");
+const otpGenerator = require("../middleware/otpgenerator");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const {createAccount, loginAccount } = require("../middleware/joivalidation");
