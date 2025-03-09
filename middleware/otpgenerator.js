@@ -4,7 +4,7 @@ const crypto = require("crypto")
 const otpGenerator = async(email) => {
     let timestap = Date.now()
     let date = new Date(). toDateString()
-    let hasg = crypto
+    let hash = crypto
     .createHash("sha256")
     .update(email+timestap+date)
     .digest("hex")
