@@ -17,6 +17,7 @@ const {
   verifyOTP,
   resetPassword,
 } = require("../controller/authContoller");
+const { payment, callBack } = require("../controller/paymentContoller");
 
 const router = express.Router();
 
@@ -40,6 +41,9 @@ router.delete("/delcarte/:categoryId", verifyToken,deleteCategory)
 router.post("/order", verifyToken,placeOrder)
 router.get("/getorder",verifyToken,getUserOrders)
 router.get("/getorderbyid/:order_id",verifyToken,getOrderById)
+router.post("/payment",verifyToken,payment)
+router.get("/callback",verifyToken,callBack)
+
 
 
 module.exports = router;

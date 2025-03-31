@@ -121,7 +121,7 @@ const postProduct = async (req, res) => {
   }
 }
 
-const updateProduct = async (req, res) => {
+const updateProduct = async (req, res) => { 
   try {
     if (req.user) {
       const userid = req.user.id;
