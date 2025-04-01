@@ -34,7 +34,7 @@ const payment = async (req, res) => {
         lastName: req.body.lastName,
         totalAmount: totalAmount,
         items: userCart.items,
-        callback_url: "https://localhost:3000/callback",
+        callback_url: "https://ecommerce-backend-ne86.onrender.com/api/vp1/callback",
       };
   
       const paymentResponse = await initializePayment(transactionData);

@@ -1,7 +1,7 @@
 const { productValidation } = require("../middleware/joivalidation");
 const Product = require("../model/productModel");
 const ProductSchema = require("../model/productModel");
-const userSchema = require("../model/userModel"); // ✅ Import User Schema
+const userSchema = require("../model/userModel"); 
 const Category = require("../model/categoryModel"); 
 const { v4: uuidv4 } = require("uuid");
 
@@ -199,12 +199,31 @@ const deleteProduct = async (req, res) => {
 
 const getCategory = async (req, res) => {
   try {
-    const categories = await Category.find();
-    return res.status(200).json({
-      success: true,
-      message: "Categories retrieved successfully",
-      categories,
-    });
+    
+   const page = parseInt(req.query.page) || 1;
+   const limit = parseInt(req.query.limit) || 10;
+   const skip = (page - 1) * limit;
+
+
+   const sortby = req.query.sortby || "name"
+   const order = req.query.order === "desc" ? -1 : 1;
+   const sortOptions = {[sortby]: order}
+
+
+   const totalCategories = await category.find().sort(sortOptions).skip(skip).limit(limit)
+
+   return res.status(200).json({
+    success: true,
+    message: categories.length > 0 
+      ? "Categories retrieved successfully" 
+      : "No categories found",
+    Category,
+    pagination: {
+      currentPage: page,
+      totalPages: Math.ceil(totalCategories / limit),
+      totalCategories,
+    },
+  });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
@@ -214,9 +233,19 @@ const getCategory = async (req, res) => {
 const postCategory = async (req, res) => {
 
   try {
+
     const { name } = req.body;
+    if (!req.user || req.user.role!== "admin") {
+      return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
+  }
+
     if (!name) {
       return res.status(400).json({ success: false, message: "Category name is required" });
+    }
+
+    const existingCategory = await Category.findOne({ name});
+    if (existingCategory) {
+      return res.status(400).json({ success: false, message: "Category already exists" });
     }
 
     const newCategory = new Category({ name });
@@ -237,6 +266,9 @@ const deleteCategory = async (req, res)=> {
 
   try {
     const categoryId = req.params.categoryId;
+    if (!req.user || req.user.role!== "admin") {
+      return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
+  }
 
     if (!categoryId) {
       return res.status(400).json({ success: false, message: "Category ID is required" });

@@ -8,7 +8,8 @@ const {
   deleteCategory,
   getProduct,
 } = require("../controller/adminController");
-const { verifyToken, verifyAdmin } = require("../middleware/verifyToken");
+const { verifyToken} = require("../middleware/verifyToken");
+
 const { getText, getPostedProducts, addToCart, getCart, deleteCart, placeOrder, getUserOrders, getOrderById } = require("../controller/userController");
 const {
   registerAccount,
@@ -16,6 +17,7 @@ const {
   forgetPassword,
   verifyOTP,
   resetPassword,
+ 
 } = require("../controller/authContoller");
 const { payment, callBack } = require("../controller/paymentContoller");
 
@@ -31,7 +33,7 @@ router.post("/products", verifyToken, postProduct);
 router.delete("/delete/:productId", verifyToken, deleteProduct);
 router.post("/forgetpassword", forgetPassword);
 router.post("/verifyotp", verifyOTP);
-router.post("/resetpassword/:otp", resetPassword);
+router.post("/resetpassword/:otp",resetPassword);
 router.post("/addCart", verifyToken,addToCart)
 router.get("/cart",verifyToken,getCart)
 router.delete("/deletecart", verifyToken,deleteCart)
@@ -42,7 +44,7 @@ router.post("/order", verifyToken,placeOrder)
 router.get("/getorder",verifyToken,getUserOrders)
 router.get("/getorderbyid/:order_id",verifyToken,getOrderById)
 router.post("/payment",verifyToken,payment)
-router.get("/callback",verifyToken,callBack)
+router.get("/callback",callBack)
 
 
 
