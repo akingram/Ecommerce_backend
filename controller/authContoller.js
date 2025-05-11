@@ -6,82 +6,98 @@ const jwt = require("jsonwebtoken");
 const {createAccount, loginAccount } = require("../middleware/joivalidation");
 
 const registerAccount = async (req, res) => {
-    try {
-      const { error } = createAccount(req.body);
-      if (error) {
-        return res.status(400).json({ error: error.details[0].message, success: false });
-      }
-      
-      const { name, email, password, retypePassword } = req.body;
-      if (password !== retypePassword) {
-        return res.status(400).json({ error: "Passwords do not match", success: false });
-      }
-      
-      const checkEmail = await userSchema.findOne({ email });
-      if (checkEmail) {
-        return res.status(409).json({ error: "Email already exists", success: false });
-      }
+  try {
+    const { name, email, password, retypePassword } = req.body;
 
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      await userSchema.create({
-        name,
-        email,
-        password: hashedPassword,  // ✅ Correct field name
-      });
-
-      return res.status(200).json({ message: "Account created successfully", success: true });
-
-    } catch (error) {
-      return res.status(500).json({
-        message: "Oops!!! an error occurred",
-        success: false,
-        error: error.message,
-      });
+    // Check if any required field is missing
+    if (!name || !email || !password || !retypePassword) {
+      return res.status(400).json({ error: "All fields are required", success: false });
     }
+
+    // Validate password match
+    if (password !== retypePassword) {
+      return res.status(400).json({ error: "Passwords do not match", success: false });
+    }
+
+    // Validate email format (basic)
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email format", success: false });
+    }
+
+    // Check if the email already exists
+    const checkEmail = await userSchema.findOne({ email });
+    if (checkEmail) {
+      return res.status(409).json({ error: "Email already exists", success: false });
+    }
+
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create the new user
+    await userSchema.create({
+      name,
+      email,
+      password: hashedPassword,  // Correct field name
+    });
+
+    return res.status(200).json({ message: "Account created successfully", success: true });
+
+  } catch (error) {
+    return res.status(500).json({
+      message: "Oops!!! an error occurred",
+      success: false,
+      error: error.message,
+    });
+  }
 };
 
+
 const signinAccount = async (req, res) => {
-    try {
-        const { error } = loginAccount(req.body);
-        if (error) {
-            return res.status(400).json({ error: error.details[0].message, success: false });
-        }
+  try {
+      const { error } = loginAccount(req.body);
+      if (error) {
+          return res.status(400).json({ error: error.details[0].message, success: false });
+      }
 
-        const { email, password } = req.body;
-        const checkUser = await userSchema.findOne({ email });
+      const { email, password } = req.body;
+      const checkUser = await userSchema.findOne({ email });
 
-        if (!checkUser) {
-            return res.status(400).json({ message: "Email and password mismatch", success: false });
-        }
+      if (!checkUser) {
+          return res.status(400).json({ message: "Email and password mismatch", success: false });
+      }
 
-        console.log("User found:", checkUser);  // ✅ Debugging
+      const checkPassword = bcrypt.compareSync(password, checkUser.password);
+      if (!checkPassword) {
+          return res.status(400).json({ message: "Wrong credentials", success: false });
+      }
 
-        const checkPassword = bcrypt.compareSync(password, checkUser.password);  // ✅ Correct field name
-        if (!checkPassword) {
-            return res.status(400).json({ message: "Wrong credentials", success: false });
-        }
+      if (!process.env.JWT_SECRET) {
+          throw new Error("JWT_SECRET is not defined");
+      }
 
-        console.log("JWT_SECRET:", process.env.JWT_SECRET);
+      const token = jwt.sign({ id: checkUser._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
-        if (!process.env.JWT_SECRET) {
-            throw new Error("JWT_SECRET is not defined in the environment variables.");
-        }
+      // Updated response to include token and user data
+      res.status(200).json({
+          message: "Logged in successfully",
+          success: true,
+          token: token,
+          user: {
+              _id: checkUser._id,
+              email: checkUser.email,
+              name: checkUser.name
+              // Add other required user fields
+          }
+      });
 
-        const token = jwt.sign({ id: checkUser._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
-
-        res
-            .cookie("access_token", token, { maxAge: 60 * 60 * 1000, httpOnly: true })
-            .status(200)
-            .json({ message: "Logged in successfully", success: true });
-
-    } catch (error) {
-        return res.status(500).json({
-            message: "Oops!!! an error occurred",
-            success: false,
-            error: error.message,
-        });
-    }
+  } catch (error) {
+      return res.status(500).json({
+          message: "Oops!!! an error occurred",
+          success: false,
+          error: error.message,
+      });
+  }
 };
 
 const forgetPassword = async (req, res) => {

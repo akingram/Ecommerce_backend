@@ -1,29 +1,56 @@
 const jwt = require("jsonwebtoken");
 
 
-const verifyToken= (req,res,next)=>{
+const verifyToken = async (req, res, next) => {
     const token = req.cookies.access_token || req.headers.authorization?.split(" ")[1];
+    
     if (!token) {
-        return res.status(401).json({ message: "Access denied" , success: false});
-
+        return res.status(401).json({ 
+            message: "Access denied", 
+            success: false,
+            error: "No token provided"
+        });
     }
+
     try {
-        const isVerify = jwt.verify(token, process.env.JWT_SECRET)
-        req.user =isVerify
-        next()
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-    } catch (error) {
-        return res.status(401).json({ message: "invalid token", success: false });
+        // Fetch the complete user from database
+        const user = await userSchema.findById(decoded.id).select('-password');
         
-    }
-}
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+                success: false
+            });
+        }
 
-const verifyAdmin = (req, res, next)=> {
-    if (!req.user || req.user.role!== "admin") {
-        return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
+        // Attach both the decoded token and full user to the request
+        req.user = {
+            ...decoded,
+            userData: {
+                _id: user._id,
+                email: user.email,
+                name: user.name
+                // Add other needed user fields
+            }
+        };
+        
+        next();
+    } catch (error) {
+        return res.status(401).json({ 
+            message: "Invalid token", 
+            success: false,
+            error: error.message 
+        });
     }
-    next();
-}
+};
+// const verifyAdmin = (req, res, next)=> {
+//     if (!req.user || req.user.role!== "admin") {
+//         return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
+//     }
+//     next();
+// }
 
 
   
