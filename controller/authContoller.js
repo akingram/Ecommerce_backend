@@ -7,43 +7,59 @@ const {createAccount, loginAccount } = require("../middleware/joivalidation");
 
 const registerAccount = async (req, res) => {
   try {
-    const { name, email, password, retypePassword } = req.body;
+    const { name, email, password, role } = req.body;  // accept role too
 
-    // Check if any required field is missing
-    if (!name || !email || !password || !retypePassword) {
-      return res.status(400).json({ error: "All fields are required", success: false });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Name, email and password are required", success: false });
     }
 
-    // Validate password match
-    if (password !== retypePassword) {
-      return res.status(400).json({ error: "Passwords do not match", success: false });
-    }
-
-    // Validate email format (basic)
+    // Validate email format
     const emailRegex = /\S+@\S+\.\S+/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: "Invalid email format", success: false });
     }
 
-    // Check if the email already exists
-    const checkEmail = await userSchema.findOne({ email });
-    if (checkEmail) {
+    // Check if email already exists
+    const existingUser = await userSchema.findOne({ email });
+    if (existingUser) {
       return res.status(409).json({ error: "Email already exists", success: false });
     }
 
-    // Hash the password
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create the new user
-    await userSchema.create({
+    // Create user with role (default to customer if not provided)
+    const user = await userSchema.create({
       name,
       email,
-      password: hashedPassword,  // Correct field name
+      password: hashedPassword,
+      role: role || 'customer'
     });
 
-    return res.status(200).json({ message: "Account created successfully", success: true });
+    // Generate JWT token (adjust your JWT secret and payload accordingly)
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Return token and user info (omit password)
+    const userData = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
+
+    return res.status(201).json({
+      token,
+      user: userData,
+      success: true,
+      message: "Account created successfully"
+    });
 
   } catch (error) {
+    console.error('Registration error:', error);
     return res.status(500).json({
       message: "Oops!!! an error occurred",
       success: false,
@@ -55,51 +71,60 @@ const registerAccount = async (req, res) => {
 
 const signinAccount = async (req, res) => {
   try {
+      // 1. Validate input
       const { error } = loginAccount(req.body);
       if (error) {
-          return res.status(400).json({ error: error.details[0].message, success: false });
+          return res.status(400).json({ 
+              success: false,
+              message: error.details[0].message 
+          });
       }
 
-      const { email, password } = req.body;
-      const checkUser = await userSchema.findOne({ email });
-
-      if (!checkUser) {
-          return res.status(400).json({ message: "Email and password mismatch", success: false });
+      // 2. Find user
+      const user = await userSchema.findOne({ email: req.body.email });
+      if (!user) {
+          return res.status(400).json({ 
+              success: false,
+              message: "Invalid email or password" // Generic message for security
+          });
       }
 
-      const checkPassword = bcrypt.compareSync(password, checkUser.password);
-      if (!checkPassword) {
-          return res.status(400).json({ message: "Wrong credentials", success: false });
+      // 3. Verify password
+      const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
+      if (!isPasswordValid) {
+          return res.status(400).json({ 
+              success: false,
+              message: "Invalid email or password"
+          });
       }
 
-      if (!process.env.JWT_SECRET) {
-          throw new Error("JWT_SECRET is not defined");
-      }
+      // 4. Generate token
+      const token = jwt.sign(
+          { id: user._id },
+          process.env.JWT_SECRET,
+          { expiresIn: '1h' }
+      );
 
-      const token = jwt.sign({ id: checkUser._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
-
-      // Updated response to include token and user data
+      // 5. Send response
       res.status(200).json({
-          message: "Logged in successfully",
           success: true,
-          token: token,
+          token,
           user: {
-              _id: checkUser._id,
-              email: checkUser.email,
-              name: checkUser.name
-              // Add other required user fields
+              _id: user._id,
+              name: user.name,
+              email: user.email
+              // Add other fields you need
           }
       });
 
   } catch (error) {
-      return res.status(500).json({
-          message: "Oops!!! an error occurred",
+      console.error("Login error:", error);
+      res.status(500).json({
           success: false,
-          error: error.message,
+          message: "Server error. Please try again."
       });
   }
 };
-
 const forgetPassword = async (req, res) => {
   try {
     const { email } = req.body;
