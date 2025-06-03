@@ -71,60 +71,70 @@ const registerAccount = async (req, res) => {
 
 const signinAccount = async (req, res) => {
   try {
-      // 1. Validate input
-      const { error } = loginAccount(req.body);
-      if (error) {
-          return res.status(400).json({ 
-              success: false,
-              message: error.details[0].message 
-          });
-      }
-
-      // 2. Find user
-      const user = await userSchema.findOne({ email: req.body.email });
-      if (!user) {
-          return res.status(400).json({ 
-              success: false,
-              message: "Invalid email or password" // Generic message for security
-          });
-      }
-
-      // 3. Verify password
-      const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
-      if (!isPasswordValid) {
-          return res.status(400).json({ 
-              success: false,
-              message: "Invalid email or password"
-          });
-      }
-
-      // 4. Generate token
-      const token = jwt.sign(
-          { id: user._id },
-          process.env.JWT_SECRET,
-          { expiresIn: '1h' }
-      );
-
-      // 5. Send response
-      res.status(200).json({
-          success: true,
-          token,
-          user: {
-              _id: user._id,
-              name: user.name,
-              email: user.email
-              // Add other fields you need
-          }
+    // 1. Validate input
+    const { error } = loginAccount(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message
       });
+    }
 
-  } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({
-          success: false,
-          message: "Server error. Please try again."
+    const { email, password } = req.body;
+
+    // 2. Find user by email
+    const user = await userSchema.findOne({ email });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password"
       });
+    }
+
+    // 3. Validate password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password"
+      });
+    }
+
+    // 4. Generate JWT token (24h expiration)
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // 5. Set HttpOnly cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+
+    // 6. Send response with user data
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error. Please try again later."
+    });
   }
 };
+
 const forgetPassword = async (req, res) => {
   try {
     const { email } = req.body;

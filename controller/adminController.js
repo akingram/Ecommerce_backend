@@ -1,41 +1,48 @@
 const { productValidation } = require("../middleware/joivalidation");
 const Product = require("../model/productModel");
-const ProductSchema = require("../model/productModel");
-const userSchema = require("../model/userModel"); 
-const Category = require("../model/categoryModel"); 
+const userSchema = require("../model/userModel");
+const Category = require("../model/categoryModel");
 const { v4: uuidv4 } = require("uuid");
+const sanitize = require("sanitize-filename");
 
 const getProduct = async (req, res) => {
   try {
-    let { search, page, limit } = req.query;
+    let { search, page, limit, category } = req.query;
 
-    page = parseInt(page) || 1; // Default to page 1
-    limit = parseInt(limit) || 10; // Default to 10 products per page
+    page = parseInt(page) || 1;
+    limit = parseInt(limit) || 10;
     const skip = (page - 1) * limit;
 
-    let query = {}; // Default: get all products
+    let query = {};
+
+    if (req.user?.role === "seller") {
+      query.user = req.user.id;
+    }
 
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: "i" } }, // Case-insensitive search in name
-        { description: { $regex: search, $options: "i" } }, // Case-insensitive search in description
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
-    // Fetch products with search and pagination
-    const products = await Product.find(query).skip(skip).limit(limit);
+    if (category) {
+      query.category = category;
+    }
 
-    // Count total products (for pagination metadata)
+    const products = await Product.find(query)
+      .skip(skip)
+      .limit(limit)
+      .populate("user", "name email");
+
     const totalProducts = await Product.countDocuments(query);
-    const totalPages = Math.ceil(totalProducts / limit);
 
     return res.status(200).json({
       success: true,
-      message: "Products retrieved successfully",
-      products,
+      data: products,
       pagination: {
         currentPage: page,
-        totalPages,
+        totalPages: Math.ceil(totalProducts / limit),
         totalProducts,
       },
     });
@@ -48,247 +55,156 @@ const getProduct = async (req, res) => {
   }
 };
 
-
 const postProduct = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        message: "Access Denied, you are not logged in",
-        success: false,
-      });
-    }
-
     const userid = req.user.id;
-    const check = await userSchema.findById(userid);
 
-    if (!check || check.role !== "admin" && check.role !== "seller") {
-      return res.status(403).json({
-        message: "Access Denied, you are not an admin",
-        success: false,
-      });
-    }
-
-    // ✅ Validate product input before processing
     const { error } = productValidation(req.body);
     if (error) {
-      return res.status(400).json({ message: error.details[0].message, success: false });
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message,
+      });
     }
 
-    // ✅ Ensure images are uploaded
-    if (!req.files || !req.files.images) {
-      return res.status(400).json({ message: "Please upload at least one image", success: false });
+    const categoryExists = await Category.findById(req.body.category);
+    if (!categoryExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Category does not exist",
+      });
     }
 
-    let images = req.files.images;
-    if (!Array.isArray(images)) {
-      images = [images]; // Convert single image to array
+    if (!req.files?.images) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload at least one image",
+      });
     }
 
-    // ✅ Proper hostname formatting
     const hostname = `${req.protocol}://${req.get("host")}`;
-    let imageArray = [];
+    const images = Array.isArray(req.files.images)
+      ? req.files.images
+      : [req.files.images];
 
-    await Promise.all(
+    const imageArray = await Promise.all(
       images.map(async (item) => {
         const imageID = uuidv4();
-        const imageExtension = item.name.split(".").pop();
-        const newImageName = `${imageID}.${imageExtension}`;
-        const imagePath = `${hostname}/public/uploads/${newImageName}`;
-        const imageDr = `public/uploads/${newImageName}`;
+        const extension = sanitize(item.name.split(".").pop());
+        const filename = sanitize(`${imageID}.${extension}`);
+        const path = `public/uploads/${filename}`;
 
-        await item.mv(imageDr);
-        imageArray.push(imagePath);
+        await item.mv(path);
+        return `${hostname}/public/uploads/${filename}`;
       })
     );
 
-    const { name, price, category, description } = req.body;
-
-    // ✅ Create product entry
-    const newProduct = await ProductSchema.create({
-      name,
-      price,
-      category,
-      description,
+    const product = await Product.create({
+      ...req.body,
       images: imageArray,
       user: userid,
-      created_at: new Date(),
-      updated_at: new Date(),
     });
 
-    return res.status(201).json({ message: "Product created successfully", success: true, product: newProduct })
+    return res.status(201).json({
+      success: true,
+      message: "Product created successfully",
+      data: product,
+    });
   } catch (error) {
-    return res.status(500).json({ message: "Server error", success: false, error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
-}
+};
 
-const updateProduct = async (req, res) => { 
+const updateProduct = async (req, res) => {
   try {
-    if (req.user) {
-      const userid = req.user.id;
-      const user = await userSchema.findOne({ _id: userid });
-      if (user.role === "admin") {
-        const updateid = req.params.productId;
-        const checkproduct = await ProductSchema.findOne({ _id: updateid });
-
-        if (!checkproduct) {
-          return res
-            .status(404)
-            .json({ message: "Product not found", success: false });
-        }
-        const { name, price, description } = req.body;
-        if (name) {
-          checkproduct.name = name;
-        }
-        if (price) {
-          checkproduct.price = price;
-        }
-        if (description) {
-          checkproduct.description = description;
-        }
-
-        await checkproduct.save();
-        return res
-          .status(200)
-          .json({ message: "Product updated successfully", success: true });
-      } else {
-        return res
-          .status(401)
-          .json({ message: "access denied", success: false });
-      }
-    } else {
-      return res
-        .status(401)
-        .json({ message: "you are not authorised", success: false });
+    const product = await Product.findById(req.params.productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
     }
+
+    if (req.user.role !== "admin" && product.user.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to update this product",
+      });
+    }
+
+    const updates = {};
+    if (req.body.name) updates.name = req.body.name;
+    if (req.body.price) updates.price = req.body.price;
+    if (req.body.description) updates.description = req.body.description;
+    if (req.body.category) {
+      const catExists = await Category.findById(req.body.category);
+      if (!catExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Provided category does not exist",
+        });
+      }
+      updates.category = req.body.category;
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.productId,
+      updates,
+      { new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: updatedProduct,
+    });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Error occured", success: false, error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
 
 const deleteProduct = async (req, res) => {
   try {
-    if (req.user) {
-      const userid = req.user.id;
-      const user = await userSchema.findOne({ _id: userid });
-      if (user.role === "admin" || user.role ===  "seller") {
-        const deleteid = req.params.productId;
-        const checkproduct = await ProductSchema.findOne({ _id: deleteid });
-        if (!checkproduct) {
-          return res
-            .status(404)
-            .json({ message: "Product not found", success: false });
-        }
-        await ProductSchema.findByIdAndDelete(deleteid);
-        return res
-          .status(200)
-          .json({ message: "Product deleted successfully", success: true });
-      } else {
-        return res
-          .status(401)
-          .json({ message: "Access denied", success: false });
-      }
+    const product = await Product.findById(req.params.productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
     }
+
+    if (req.user.role !== "admin" && product.user.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to delete this product",
+      });
+    }
+
+    await Product.findByIdAndDelete(req.params.productId);
+    return res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
+    });
   } catch (error) {
-    return res
-      .status(401)
-      .json({ message: "you are not authorized", success: false });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
 
-const getCategory = async (req, res) => {
-  try {
-    
-   const page = parseInt(req.query.page) || 1;
-   const limit = parseInt(req.query.limit) || 10;
-   const skip = (page - 1) * limit;
-
-
-   const sortby = req.query.sortby || "name"
-   const order = req.query.order === "desc" ? -1 : 1;
-   const sortOptions = {[sortby]: order}
-
-
-   const totalCategories = await category.find().sort(sortOptions).skip(skip).limit(limit)
-
-   return res.status(200).json({
-    success: true,
-    message: categories.length > 0 
-      ? "Categories retrieved successfully" 
-      : "No categories found",
-    Category,
-    pagination: {
-      currentPage: page,
-      totalPages: Math.ceil(totalCategories / limit),
-      totalCategories,
-    },
-  });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Server error", error: error.message });
-  }
-}
-
-
-const postCategory = async (req, res) => {
-
-  try {
-
-    const { name } = req.body;
-    if (!req.user || req.user.role!== "admin") {
-      return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
-  }
-
-    if (!name) {
-      return res.status(400).json({ success: false, message: "Category name is required" });
-    }
-
-    const existingCategory = await Category.findOne({ name});
-    if (existingCategory) {
-      return res.status(400).json({ success: false, message: "Category already exists" });
-    }
-
-    const newCategory = new Category({ name });
-    await newCategory.save();
-
-    return res.status(201).json({
-      success: true,
-      message: "Category created successfully",
-      category: newCategory,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Server error", error: error.message });
-  }
-}
-
-const deleteCategory = async (req, res)=> {
-
-
-  try {
-    const categoryId = req.params.categoryId;
-    if (!req.user || req.user.role!== "admin") {
-      return res.status(403).json({ message: "Access denied, you are not an admin", success: false });
-  }
-
-    if (!categoryId) {
-      return res.status(400).json({ success: false, message: "Category ID is required" });
-    }
-
-    const deletedCategory = await Category.findByIdAndDelete(categoryId);
-
-    if (!deletedCategory) {
-      return res.status(404).json({ success: false, message: "Category not found" });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Category deleted successfully",
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Server error", error: error.message });
-  }
-}
-
-
-
-module.exports = { postProduct,getProduct, updateProduct,deleteProduct,getCategory,deleteCategory,postCategory };
+module.exports = {
+  getProduct,
+  postProduct,
+  updateProduct,
+  deleteProduct,
+};

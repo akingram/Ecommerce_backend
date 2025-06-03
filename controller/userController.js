@@ -18,23 +18,34 @@ const getText = (req, res) => {
 
 const getPostedProducts = async (req, res) => {
   try {
-    const product = await ProductSchema.find().populate("postedBy");
-    if (product.length === 0 || !product) {
+    const { category } = req.query;
+    let filter = {};
+    if (category) {
+      filter.category = category;
+    }
+
+    const products = await Product.find(filter).populate("createdBy", "-password");
+
+    if (!products || products.length === 0) {
       return res.status(404).json({
-        message: "no product found",
+        message: "No products found",
         success: false,
+        data: [],
       });
     }
-    return res
-      .status(200)
-      .json({
-        message: "products found successfully",
-        success: true,
-        data: product,
-      });
+
+    return res.status(200).json({
+      message: "Products found successfully",
+      success: true,
+      data: products,
+    });
   } catch (error) {
-    res.status(500);
-    console.log(error.message);
+    console.error(error.message);
+    return res.status(500).json({
+      message: "Server error",
+      success: false,
+      error: error.message,
+    });
   }
 };
 
