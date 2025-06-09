@@ -22,7 +22,7 @@ const verifyToken = async (req, res, next) => {
       });
     }
 
-    req.user = user; // Attach full user object
+    req.user = user; // Attach user to request
     next();
   } catch (error) {
     console.error('Token verification error:', error);
@@ -33,4 +33,4 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-module.exports = verifyToken;
+module.exports = { verifyToken }; // Export as object

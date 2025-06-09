@@ -3,119 +3,210 @@ const cartModel = require("../model/cartModel");
 const checkOutModel = require("../model/checkOutModel");
 const { initializePayment, verifyPaymentStatus } = require("../middleware/paystack");
 
-// const calculateCartTotal = (userCart) => {
-//   return userCart.items.reduce((total, item) => {
-//     return total + item.product.price * item.quantity;
-//   }, 0);
-// };
 const payment = async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({
-          success: false,
-          message: "You must be logged in to make a payment",
-        });
-      }
-  
-      const userId = req.user.id;
-      const currentUser = await userModel.findOne({ _id: userId });
-      const userCart = await cartModel.findOne({ userId: userId }).populate("product");
-  
-      let totalAmount = 0;
-      userCart.items.forEach(item => { 
-        totalAmount += item.product.price * item.quantity;
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "You must be logged in to make a payment",
       });
-  
-      const transactionData = {
-        email: currentUser.email,
-        userId: currentUser._id,
-        name: req.body.name,
-        firstName: req.body.firstName,
-        lastName: req.body.lastName,
-        totalAmount: totalAmount,
-        items: userCart.items,
-        callback_url: "https://ecommerce-backend-ne86.onrender.com/api/vp1/callback",
-      };
-  
-      const paymentResponse = await initializePayment(transactionData);
-      const { authorization_url } = paymentResponse.data;
-      res.redirect(authorization_url);
-  
-    } catch (error) {
-      console.log(error);
-      return res.status(500).json({ success: false, message: "Server Error" });
     }
-  };
-  
 
-  const callBack = async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.redirect("/login");
-      }
-  
-      const userId = req.user.id;
-      const currentUser = await userModel.findOne({ _id: userId });
-      const userCart = await cartModel.findOne({ userId: userId }).populate("product");
-  
-      let totalAmount = 0;
-      userCart.items.forEach(item => { 
-        totalAmount += item.product.price * item.quantity;
+    const userId = req.user.id;
+    const currentUser = await userModel.findOne({ _id: userId });
+    
+    // Fixed: Use consistent field names - should be 'user' not 'userId' based on your cart schema
+    const userCart = await cartModel.findOne({ user: userId }).populate("items.product");
 
+    if (!userCart || !userCart.items.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Cart is empty"
       });
-      if (!userCart || !userCart.items.length) {
-        return res.status(400).json({ success: false, message: "Cart is empty" });
-    }    
-  
-      const { reference, trxref } = req.query;
-      const paymentStatus = await verifyPaymentStatus(trxref);
-  
-      if (paymentStatus.data.status === "success") {
-        const products = userCart.items.map((item) => ({
-          product: item.product._id,
-          quantity: item.quantity
-        }));
-  
-        await checkOutModel.create({
-          userId: userId,
-          product: products,
-          reference: reference || "",
-          trxref: trxref || "",
-          status: true,
-        });
-  
-        await cartModel.deleteMany({ userId: userId });
-  
+    }
+
+    let totalAmount = 0;
+    userCart.items.forEach(item => {
+      if (item.product && item.product.price) {
+        totalAmount += item.product.price * item.quantity;
+      }
+    });
+
+    const transactionData = {
+      email: currentUser.email,
+      userId: currentUser._id,
+      name: req.body.name || `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim(),
+      firstName: req.body.firstName || currentUser.firstName,
+      lastName: req.body.lastName || currentUser.lastName,
+      totalAmount: totalAmount,
+      items: userCart.items,
+      callback_url: "https://ecommerce-backend-ne86.onrender.com/api/vp1/payment/callback",
+    };
+
+    const paymentResponse = await initializePayment(transactionData);
+    
+    if (paymentResponse && paymentResponse.data && paymentResponse.data.authorization_url) {
+      const { authorization_url } = paymentResponse.data;
+      
+      // Return JSON response instead of redirect for API consistency
+      return res.status(200).json({
+        success: true,
+        message: "Payment initialized successfully",
+        authorization_url: authorization_url
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to initialize payment"
+      });
+    }
+
+  } catch (error) {
+    console.error("Payment initialization error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Server Error",
+      error: error.message 
+    });
+  }
+};
+
+const callBack = async (req, res) => {
+  try {
+    const { reference, trxref } = req.query;
+
+    if (!reference && !trxref) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing payment reference"
+      });
+    }
+
+    // Verify payment status
+    const paymentStatus = await verifyPaymentStatus(trxref || reference);
+
+    if (!paymentStatus || !paymentStatus.data) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to verify payment"
+      });
+    }
+
+    // Extract user information from payment metadata if available
+    const userId = paymentStatus.data.metadata?.userId || req.user?.id;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to identify user"
+      });
+    }
+
+    const currentUser = await userModel.findOne({ _id: userId });
+    const userCart = await cartModel.findOne({ user: userId }).populate("items.product");
+
+    if (!userCart || !userCart.items.length) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Cart is empty or not found" 
+      });
+    }
+
+    let totalAmount = 0;
+    const products = userCart.items.map((item) => {
+      if (item.product && item.product.price) {
+        totalAmount += item.product.price * item.quantity;
+      }
+      return {
+        product: item.product._id,
+        quantity: item.quantity
+      };
+    });
+
+    if (paymentStatus.data.status === "success") {
+      // Create successful checkout record
+      await checkOutModel.create({
+        userId: userId,
+        product: products,
+        reference: reference || "",
+        trxref: trxref || "",
+        status: true,
+        totalAmount: totalAmount,
+        createdAt: new Date()
+      });
+
+      // Clear the cart after successful payment
+      await cartModel.deleteOne({ user: userId });
+
+      // If this is a web request, render the page
+      if (req.headers.accept && req.headers.accept.includes('text/html')) {
         res.render("checkout", {
           message: "Payment successful",
           success: true,
           currentUser
         });
       } else {
-        await checkOutModel.create({
-          userId: userId,
-          product: products,
-          reference: reference || "",
-          trxref: trxref || "",
-          status: false,
+        // Return JSON response for API requests
+        return res.status(200).json({
+          success: true,
+          message: "Payment successful",
+          order: {
+            reference: reference || trxref,
+            totalAmount: totalAmount,
+            products: products
+          }
         });
-  
+      }
+    } else {
+      // Create failed checkout record
+      await checkOutModel.create({
+        userId: userId,
+        product: products,
+        reference: reference || "",
+        trxref: trxref || "",
+        status: false,
+        totalAmount: totalAmount,
+        createdAt: new Date()
+      });
+
+      // If this is a web request, render the page
+      if (req.headers.accept && req.headers.accept.includes('text/html')) {
         res.render("checkout", {
           message: "Payment failed",
+          success: false,
           currentUser,
           userCart: userCart.items,
           totalAmount
         });
+      } else {
+        // Return JSON response for API requests
+        return res.status(400).json({
+          success: false,
+          message: "Payment failed",
+          totalAmount: totalAmount
+        });
       }
-  
-    } catch (error) {
-      console.error("Error processing payment:", error);
-      res.status(500).json({ success: false, message: "Server Error" });
     }
-  };
-  
+
+  } catch (error) {
+    console.error("Error processing payment callback:", error);
+    
+    // Handle both web and API responses
+    if (req.headers.accept && req.headers.accept.includes('text/html')) {
+      res.status(500).render("error", {
+        message: "Payment processing error"
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        message: "Server Error",
+        error: error.message 
+      });
+    }
+  }
+};
 
 module.exports = {
-    payment,
-    callBack
-}
+  payment,
+  callBack
+};

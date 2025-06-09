@@ -1,6 +1,5 @@
 const { productValidation } = require("../middleware/joivalidation");
 const Product = require("../model/productModel");
-const userSchema = require("../model/userModel");
 const Category = require("../model/categoryModel");
 const { v4: uuidv4 } = require("uuid");
 const sanitize = require("sanitize-filename");
@@ -45,6 +44,28 @@ const getProduct = async (req, res) => {
         totalPages: Math.ceil(totalProducts / limit),
         totalProducts,
       },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+const getProductById = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id).populate("user", "name email");
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: product,
     });
   } catch (error) {
     return res.status(500).json({
@@ -200,11 +221,88 @@ const deleteProduct = async (req, res) => {
       error: error.message,
     });
   }
+};  
+  
+
+// New Category Functions
+const getCategory = async (req, res) => {
+  try {
+    const categories = await Category.find();
+    res.status(200).json({
+      success: true,
+      data: categories
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
+const postCategory = async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Category name is required"
+      });
+    }
+
+    const newCategory = await Category.create({ name });
+    res.status(201).json({
+      success: true,
+      message: "Category created successfully",
+      data: newCategory
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
+const deleteCategory = async (req, res) => {
+  try {
+    const category = await Category.findByIdAndDelete(req.params.id);
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found"
+      });
+    }
+    
+    // Optional: Remove this category from all products
+    await Product.updateMany(
+      { category: req.params.id },
+      { $unset: { category: "" } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Category deleted successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
 };
 
 module.exports = {
   getProduct,
+  getProductById,
   postProduct,
   updateProduct,
   deleteProduct,
+  getCategory,
+  postCategory,
+  deleteCategory
 };
