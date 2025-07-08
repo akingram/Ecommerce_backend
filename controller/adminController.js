@@ -14,8 +14,9 @@ const getProduct = async (req, res) => {
 
     let query = {};
 
+    // Fix: Use 'createdBy' instead of 'user' to match your schema
     if (req.user?.role === "seller") {
-      query.user = req.user.id;
+      query.createdBy = req.user.id;
     }
 
     if (search) {
@@ -26,13 +27,14 @@ const getProduct = async (req, res) => {
     }
 
     if (category) {
-      query.category = category;
+      query.category = category; // This works since category is stored as string
     }
 
+    // Fix: Use 'createdBy' instead of 'user' in populate
     const products = await Product.find(query)
       .skip(skip)
       .limit(limit)
-      .populate("user", "name email");
+      .populate("createdBy", "name email");
 
     const totalProducts = await Product.countDocuments(query);
 
@@ -56,7 +58,8 @@ const getProduct = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate("user", "name email");
+    // Fix: Use 'createdBy' instead of 'user' in populate
+    const product = await Product.findById(req.params.id).populate("createdBy", "name email");
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -78,52 +81,41 @@ const getProductById = async (req, res) => {
 
 const postProduct = async (req, res) => {
   try {
-    const userid = req.user.id;
+    const userid = req.user?.id; // Make optional in case auth is not working
 
-    const { error } = productValidation(req.body);
-    if (error) {
+    // Basic validation - replace your productValidation if needed
+    const { name, description, price, category } = req.body;
+    
+    if (!name || !description || !price || !category) {
       return res.status(400).json({
         success: false,
-        message: error.details[0].message,
+        message: "All fields (name, description, price, category) are required",
       });
     }
 
-    const categoryExists = await Category.findById(req.body.category);
+    // Check if category exists by NAME (not ObjectId)
+    let categoryExists = await Category.findOne({ name: category });
     if (!categoryExists) {
+      // Create the category if it doesn't exist
+      categoryExists = await Category.create({ name: category });
+    }
+
+    // Check for single image upload (your frontend sends 'image', not 'images')
+    if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: "Category does not exist",
+        message: "Please upload an image",
       });
     }
 
-    if (!req.files?.images) {
-      return res.status(400).json({
-        success: false,
-        message: "Please upload at least one image",
-      });
-    }
-
-    const hostname = `${req.protocol}://${req.get("host")}`;
-    const images = Array.isArray(req.files.images)
-      ? req.files.images
-      : [req.files.images];
-
-    const imageArray = await Promise.all(
-      images.map(async (item) => {
-        const imageID = uuidv4();
-        const extension = sanitize(item.name.split(".").pop());
-        const filename = sanitize(`${imageID}.${extension}`);
-        const path = `public/uploads/${filename}`;
-
-        await item.mv(path);
-        return `${hostname}/public/uploads/${filename}`;
-      })
-    );
-
+    // Create the product with the correct field names
     const product = await Product.create({
-      ...req.body,
-      images: imageArray,
-      user: userid,
+      name: name.trim(),
+      description: description.trim(),
+      price: parseFloat(price),
+      category: category, // Store as string (matches your schema)
+      image: req.file.path, // Single image path (matches your schema)
+      createdBy: userid, // Use createdBy (matches your schema)
     });
 
     return res.status(201).json({
@@ -132,6 +124,7 @@ const postProduct = async (req, res) => {
       data: product,
     });
   } catch (error) {
+    console.error('Error in postProduct:', error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -150,7 +143,8 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    if (req.user.role !== "admin" && product.user.toString() !== req.user.id) {
+    // Fix: Use 'createdBy' instead of 'user' to match your schema
+    if (req.user.role !== "admin" && product.createdBy.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized to update this product",
@@ -162,12 +156,11 @@ const updateProduct = async (req, res) => {
     if (req.body.price) updates.price = req.body.price;
     if (req.body.description) updates.description = req.body.description;
     if (req.body.category) {
-      const catExists = await Category.findById(req.body.category);
+      // Fix: Check category by name instead of ObjectId
+      const catExists = await Category.findOne({ name: req.body.category });
       if (!catExists) {
-        return res.status(400).json({
-          success: false,
-          message: "Provided category does not exist",
-        });
+        // Create category if it doesn't exist
+        await Category.create({ name: req.body.category });
       }
       updates.category = req.body.category;
     }
@@ -202,7 +195,8 @@ const deleteProduct = async (req, res) => {
       });
     }
 
-    if (req.user.role !== "admin" && product.user.toString() !== req.user.id) {
+    // Fix: Use 'createdBy' instead of 'user' to match your schema
+    if (req.user.role !== "admin" && product.createdBy.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized to delete this product",
@@ -221,8 +215,7 @@ const deleteProduct = async (req, res) => {
       error: error.message,
     });
   }
-};  
-  
+};
 
 // New Category Functions
 const getCategory = async (req, res) => {

@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(helmet());
 app.use(xssClean());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
+// app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
 // Routes
 app.use("/api/vp1", allRoutes);

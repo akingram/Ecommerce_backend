@@ -51,6 +51,7 @@ const paymentController = require("../controller/paymentController");
 // console.log("=== END DEBUGGING ===");
 
 // ===================== Auth Routes =====================
+
 router.get('/user/profile', verifyToken, (req, res) => {
   res.json({
     success: true,
