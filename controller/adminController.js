@@ -81,11 +81,16 @@ const getProductById = async (req, res) => {
 
 const postProduct = async (req, res) => {
   try {
-    const userid = req.user?.id; // Make optional in case auth is not working
+    // Debug logging
+    console.log('=== DEBUG INFO ===');
+    console.log('req.body:', req.body);
+    console.log('req.files:', req.files);
+    console.log('==================');
 
-    // Basic validation - replace your productValidation if needed
+    const userid = req.user?.id;
     const { name, description, price, category } = req.body;
     
+    // Basic validation
     if (!name || !description || !price || !category) {
       return res.status(400).json({
         success: false,
@@ -93,29 +98,48 @@ const postProduct = async (req, res) => {
       });
     }
 
-    // Check if category exists by NAME (not ObjectId)
-    let categoryExists = await Category.findOne({ name: category });
-    if (!categoryExists) {
-      // Create the category if it doesn't exist
-      categoryExists = await Category.create({ name: category });
-    }
-
-    // Check for single image upload (your frontend sends 'image', not 'images')
-    if (!req.file) {
+    // Check for image upload - express-fileupload uses req.files
+    if (!req.files || !req.files.image) {
       return res.status(400).json({
         success: false,
         message: "Please upload an image",
       });
     }
 
-    // Create the product with the correct field names
+    const imageFile = req.files.image;
+
+    // Validate file type
+    if (!imageFile.mimetype.startsWith('image/')) {
+      return res.status(400).json({
+        success: false,
+        message: "Only image files are allowed",
+      });
+    }
+
+    // Check if category exists by NAME
+    let categoryExists = await Category.findOne({ name: category });
+    if (!categoryExists) {
+      // Create the category if it doesn't exist
+      categoryExists = await Category.create({ name: category });
+    }
+
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const fileExtension = path.extname(imageFile.name);
+    const newFileName = `image-${uniqueSuffix}${fileExtension}`;
+    const uploadPath = path.join(__dirname, '../uploads', newFileName);
+
+    // Move the file to uploads directory
+    await imageFile.mv(uploadPath);
+
+    // Create the product
     const product = await Product.create({
       name: name.trim(),
       description: description.trim(),
       price: parseFloat(price),
-      category: category, // Store as string (matches your schema)
-      image: req.file.path, // Single image path (matches your schema)
-      createdBy: userid, // Use createdBy (matches your schema)
+      category: category,
+      image: `uploads/${newFileName}`, // Store relative path
+      createdBy: userid,
     });
 
     return res.status(201).json({
@@ -125,6 +149,15 @@ const postProduct = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in postProduct:', error);
+    
+    // Handle file upload errors
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'File too large. Maximum size is 5MB.',
+      });
+    }
+    
     return res.status(500).json({
       success: false,
       message: "Server error",
