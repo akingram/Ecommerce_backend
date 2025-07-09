@@ -11,9 +11,6 @@ const helmet = require("helmet");
 const xssClean = require("xss-clean");
 const rateLimit = require("express-rate-limit");
 
-
-
-
 // Database connection
 mongoose.connect(process.env.MONGODB_URL)
   .then(() => console.log("DB connection established"))
@@ -23,13 +20,23 @@ mongoose.connect(process.env.MONGODB_URL)
 app.use(cors({
   origin: ['http://localhost:5173'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'multipart/form-data'],
   credentials: true
 }));
 
-// Middlewares
+// File upload middleware with proper configuration
+app.use(fileUpload({
+  createParentPath: true,
+  limits: { 
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  useTempFiles: true,
+  tempFileDir: '/tmp/',
+  debug: true // Enable debug logging
+}));
+
+// Other middlewares
 app.use("/public", express.static(path.join(__dirname, "public")));
-app.use(fileUpload());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

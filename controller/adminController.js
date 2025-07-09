@@ -3,6 +3,7 @@ const Product = require("../model/productModel");
 const Category = require("../model/categoryModel");
 const { v4: uuidv4 } = require("uuid");
 const sanitize = require("sanitize-filename");
+const path = require("path"); 
 
 const getProduct = async (req, res) => {
   try {
