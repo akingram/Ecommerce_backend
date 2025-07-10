@@ -16,27 +16,13 @@ mongoose.connect(process.env.MONGODB_URL)
   .then(() => console.log("DB connection established"))
   .catch(error => console.error("DB connection error:", error));
 
-// CORS configuration - FIXED
+// Enhanced CORS configuration
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://localhost:3000',
-    'https://your-frontend-domain.com' // Add your production domain
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With',
-    'Accept',
-    'Origin'
-  ], // Removed 'multipart/form-data' - this was causing the parsing error
-  credentials: true,
-  optionsSuccessStatus: 200 // For legacy browser support
+  origin: ['http://localhost:5173'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'multipart/form-data'],
+  credentials: true
 }));
-
-// Handle preflight requests explicitly
-app.options('*', cors());
 
 // File upload middleware with proper configuration
 app.use(fileUpload({
@@ -54,27 +40,16 @@ app.use("/public", express.static(path.join(__dirname, "public")));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+app.use(helmet());
 app.use(xssClean());
 // app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
-// Routes - UPDATED to match frontend expectations
-app.use("/api", allRoutes); // Changed from "/api/vp1" to "/api"
-
-// Alternative: Keep your existing route prefix and update frontend
-// app.use("/api/vp1", allRoutes);
+// Routes
+app.use("/api/vp1", allRoutes);
 
 // Health check endpoint
-app.get("/api/health", (req, res) => {
+app.get("/api/vp1/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date() });
-});
-
-// CORS debug middleware (remove in production)
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin}`);
-  next();
 });
 
 // Error handling
@@ -90,5 +65,4 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`CORS enabled for: http://localhost:5173`);
 });
