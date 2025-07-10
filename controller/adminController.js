@@ -7,6 +7,9 @@ const path = require("path");
 
 const getProduct = async (req, res) => {
   try {
+    console.log('🔍 getProduct called with query:', req.query);
+    console.log('👤 User:', req.user);
+
     let { search, page, limit, category } = req.query;
 
     page = parseInt(page) || 1;
@@ -15,30 +18,47 @@ const getProduct = async (req, res) => {
 
     let query = {};
 
-    // Fix: Use 'createdBy' instead of 'user' to match your schema
+    // Role-based filtering
     if (req.user?.role === "seller") {
       query.createdBy = req.user.id;
+      console.log('🏪 Seller query - filtering by createdBy:', req.user.id);
     }
 
+    // Search functionality
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
       ];
+      console.log('🔍 Search query applied:', query.$or);
     }
 
+    // Category filtering
     if (category) {
-      query.category = category; // This works since category is stored as string
+      // Trim whitespace and handle empty categories
+      const trimmedCategory = category.trim();
+      if (trimmedCategory) {
+        query.category = trimmedCategory;
+        console.log('📂 Category filter applied:', trimmedCategory);
+      }
     }
 
-    // Fix: Use 'createdBy' instead of 'user' in populate
+    console.log('📋 Final MongoDB query:', JSON.stringify(query, null, 2));
+
+    // Execute the query with error handling
     const products = await Product.find(query)
       .skip(skip)
       .limit(limit)
-      .populate("createdBy", "name email");
+      .populate("createdBy", "name email")
+      .lean(); // Use lean() for better performance
 
+    console.log('📦 Products found:', products.length);
+
+    // Get total count
     const totalProducts = await Product.countDocuments(query);
+    console.log('📊 Total products count:', totalProducts);
 
+    // Return success response
     return res.status(200).json({
       success: true,
       data: products,
@@ -46,36 +66,111 @@ const getProduct = async (req, res) => {
         currentPage: page,
         totalPages: Math.ceil(totalProducts / limit),
         totalProducts,
+        hasNextPage: page < Math.ceil(totalProducts / limit),
+        hasPrevPage: page > 1,
       },
     });
+
   } catch (error) {
+    console.error('❌ Error in getProduct:', error);
+    console.error('📋 Stack trace:', error.stack);
+    
+    // Return detailed error for debugging
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: error.message,
+      message: "Failed to fetch products",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error",
+      details: process.env.NODE_ENV === 'development' ? {
+        query: req.query,
+        user: req.user ? { id: req.user.id, role: req.user.role } : null,
+        stack: error.stack
+      } : undefined
     });
   }
 };
 
+
+
 const getProductById = async (req, res) => {
   try {
-    // Fix: Use 'createdBy' instead of 'user' in populate
-    const product = await Product.findById(req.params.id).populate("createdBy", "name email");
+    console.log('🔍 getProductById called with ID:', req.params.id);
+    
+    // Validate MongoDB ObjectId format
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID format",
+      });
+    }
+
+    const product = await Product.findById(req.params.id)
+      .populate("createdBy", "name email")
+      .lean();
+
     if (!product) {
+      console.log('❌ Product not found with ID:', req.params.id);
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
     }
+
+    console.log('✅ Product found:', product.name);
+
     return res.status(200).json({
       success: true,
       data: product,
     });
+
+  } catch (error) {
+    console.error('❌ Error in getProductById:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch product",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error",
+    });
+  }
+};
+
+// Additional helper function for debugging
+const debugProductSchema = async (req, res) => {
+  try {
+    // Get a sample product to check schema
+    const sampleProduct = await Product.findOne().lean();
+    
+    if (!sampleProduct) {
+      return res.status(200).json({
+        success: true,
+        message: "No products in database",
+        schema: "Cannot determine schema - no products exist"
+      });
+    }
+
+    // Get all unique field names from the collection
+    const allProducts = await Product.find({}).limit(10).lean();
+    const allFields = new Set();
+    
+    allProducts.forEach(product => {
+      Object.keys(product).forEach(key => allFields.add(key));
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Schema debug info",
+      data: {
+        sampleProduct,
+        allFields: Array.from(allFields),
+        totalProducts: await Product.countDocuments(),
+        productModel: Product.schema.paths ? Object.keys(Product.schema.paths) : "Schema not accessible"
+      }
+    });
+
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: error.message,
+      message: "Debug failed",
+      error: error.message
     });
   }
 };
