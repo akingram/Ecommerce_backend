@@ -9,47 +9,6 @@ const userController = require("../controller/userController");
 const authController = require("../controller/authController");
 const paymentController = require("../controller/paymentController");
 
-// Optional: Debugging check (remove in production)
-// console.log("=== CONTROLLER FUNCTION DEBUGGING ===");
-
-// console.log("Admin Controller Functions:", {
-//   getProduct: typeof adminController.getProduct,
-//   getProductById: typeof adminController.getProductById,
-//   postProduct: typeof adminController.postProduct,
-//   updateProduct: typeof adminController.updateProduct,
-//   deleteProduct: typeof adminController.deleteProduct,
-//   getCategory: typeof adminController.getCategory,
-//   postCategory: typeof adminController.postCategory,
-//   deleteCategory: typeof adminController.deleteCategory
-// });
-
-// console.log("User Controller Functions:", {
-//   getText: typeof userController.getText,
-//   getPostedProducts: typeof userController.getPostedProducts,
-//   addToCart: typeof userController.addToCart,
-//   getCart: typeof userController.getCart,
-//   deleteCart: typeof userController.deleteCart,
-//   placeOrder: typeof userController.placeOrder,
-//   getUserOrders: typeof userController.getUserOrders,
-//   getOrderById: typeof userController.getOrderById,
-//   payment: typeof userController.payment
-// });
-
-// console.log("Auth Controller Functions:", {
-//   registerAccount: typeof authController.registerAccount,
-//   signinAccount: typeof authController.signinAccount,
-//   forgetPassword: typeof authController.forgetPassword,
-//   verifyOTP: typeof authController.verifyOTP,
-//   resetPassword: typeof authController.resetPassword
-// });
-
-// console.log("Payment Controller Functions:", {
-//   payment: typeof paymentController.payment,
-//   callBack: typeof paymentController.callBack
-// });
-
-// console.log("=== END DEBUGGING ===");
-
 // ===================== Auth Routes =====================
 
 router.get('/user/profile', verifyToken, (req, res) => {
@@ -76,6 +35,10 @@ router.get("/products/:id", adminController.getProductById);
 router.post("/products", verifyToken, isSellerOrAdmin, adminController.postProduct);
 router.patch("/products/:productId", verifyToken, isSellerOrAdmin, adminController.updateProduct);
 router.delete("/products/:productId", verifyToken, isSellerOrAdmin, adminController.deleteProduct);
+
+// ===================== Admin/Seller Specific Routes =====================
+// Get products posted by the current admin/seller
+router.get("/admin/my-products", verifyToken, isSellerOrAdmin, adminController.getMyProducts);
 
 // ===================== Category Routes (Admin Only) =====================
 router.get("/admin/categories", verifyToken, isAdmin, adminController.getCategory);

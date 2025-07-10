@@ -5,6 +5,37 @@ const { v4: uuidv4 } = require("uuid");
 const sanitize = require("sanitize-filename");
 const path = require("path"); 
 
+
+// Add this function to your adminController.js
+
+const getMyProducts = async (req, res) => {
+  try {
+    const adminId = req.user._id; // Get admin ID from verified token
+    
+    // Assuming your Product model has a 'createdBy' or 'seller' field
+    // Adjust the field name based on your schema
+    const products = await Product.find({ createdBy: adminId })
+      .sort({ createdAt: -1 }) // Sort by newest first
+      .populate('category', 'name') // If you have category reference
+      .select('name description price image category createdAt updatedAt');
+    
+    res.status(200).json({
+      success: true,
+      message: 'Products retrieved successfully',
+      data: products,
+      count: products.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching admin products:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching products',
+      error: error.message
+    });
+  }
+};
+
 const getProduct = async (req, res) => {
   try {
     console.log('🔍 getProduct called with query:', req.query);
@@ -419,6 +450,7 @@ const deleteCategory = async (req, res) => {
 };
 
 module.exports = {
+  getMyProducts,
   getProduct,
   getProductById,
   postProduct,
