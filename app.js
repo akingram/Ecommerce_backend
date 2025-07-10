@@ -16,13 +16,23 @@ mongoose.connect(process.env.MONGODB_URL)
   .then(() => console.log("DB connection established"))
   .catch(error => console.error("DB connection error:", error));
 
-// Enhanced CORS configuration
+// Fixed CORS configuration
 app.use(cors({
-  origin: ['http://localhost:5173'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'multipart/form-data'],
-  credentials: true
+  origin: ['http://localhost:5173', 'http://localhost:3000'], // Add more origins as needed
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'Accept',
+    'X-Requested-With',
+    'Access-Control-Allow-Origin'
+  ], // Removed 'multipart/form-data' - this is not a header name
+  credentials: true,
+  optionsSuccessStatus: 200 // For legacy browser support
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
 
 // File upload middleware with proper configuration
 app.use(fileUpload({
@@ -40,7 +50,12 @@ app.use("/public", express.static(path.join(__dirname, "public")));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(helmet());
+
+// Configure helmet with CORS-friendly settings
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
 app.use(xssClean());
 // app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
