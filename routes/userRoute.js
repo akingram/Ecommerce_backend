@@ -63,4 +63,54 @@ router.get("/payment/callback", paymentController.callBack);
 // Optional: Keep a simple payment endpoint in user controller for basic info
 router.get("/payment/info", verifyToken, userController.payment);
 
+
+// ===================== Admin Dashboard Routes =====================
+
+// Dashboard Statistics
+router.get("/admin/dashboard-stats", verifyToken, isAdmin, adminController.getDashboardStats);
+
+// Recent Orders for Admin
+router.get("/admin/recent-orders", verifyToken, isAdmin, adminController.getRecentOrders);
+
+// Admin Notifications
+router.get("/admin/notifications", verifyToken, isAdmin, adminController.getNotifications);
+
+// Mark notification as read
+router.patch("/admin/notifications/:id/read", verifyToken, isAdmin, adminController.markNotificationRead);
+
+// ===================== Enhanced Order Management =====================
+
+// Get all orders (admin view)
+router.get("/admin/orders", verifyToken, isAdmin, adminController.getAllOrders);
+
+// Update order status
+router.patch("/admin/orders/:orderId/status", verifyToken, isAdmin, adminController.updateOrderStatus);
+
+// Get order analytics
+router.get("/admin/analytics/orders", verifyToken, isAdmin, adminController.getOrderAnalytics);
+
+// ===================== Enhanced Product Analytics =====================
+
+// Get product analytics
+router.get("/admin/analytics/products", verifyToken, isAdmin, adminController.getProductAnalytics);
+
+// Get low stock products
+router.get("/admin/products/low-stock", verifyToken, isAdmin, adminController.getLowStockProducts);
+
+// ===================== User Management (Admin) =====================
+
+// Get all users
+router.get("/admin/users", verifyToken, isAdmin, adminController.getAllUsers);
+
+// Update user status
+router.patch("/admin/users/:userId/status", verifyToken, isAdmin, adminController.updateUserStatus);
+
+// ===================== Settings Routes =====================
+
+// Get admin settings
+router.get("/admin/settings", verifyToken, isAdmin, adminController.getSettings);
+
+// Update admin settings
+router.patch("/admin/settings", verifyToken, isAdmin, adminController.updateSettings);
+
 module.exports = router;

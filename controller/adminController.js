@@ -1,6 +1,8 @@
 const { productValidation } = require("../middleware/joivalidation");
 const Product = require("../model/productModel");
 const Category = require("../model/categoryModel");
+const Order = require("../model/orderModel"); // ADD THIS
+const User = require("../model/userModel");
 const { v4: uuidv4 } = require("uuid");
 const sanitize = require("sanitize-filename");
 const path = require("path"); 
@@ -448,8 +450,461 @@ const deleteCategory = async (req, res) => {
     });
   }
 };
+// Add these methods to your adminController.js
+
+// Dashboard Statistics
+const getDashboardStats = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get products count for this admin
+    const totalProducts = await Product.countDocuments({ createdBy: userId });
+    
+    // Get orders related to this admin's products
+    const adminProducts = await Product.find({ createdBy: userId }).select('_id');
+    const productIds = adminProducts.map(p => p._id);
+    
+    const orders = await Order.find({ 
+      'items.product': { $in: productIds } 
+    });
+    
+    const totalOrders = orders.length;
+    const pendingOrders = orders.filter(order => order.status === 'pending').length;
+    
+    // Calculate total revenue
+    const totalRevenue = orders.reduce((sum, order) => {
+      return sum + order.items.reduce((itemSum, item) => {
+        if (productIds.includes(item.product.toString())) {
+          return itemSum + (item.price * item.quantity);
+        }
+        return itemSum;
+      }, 0);
+    }, 0);
+    
+    // Get low stock items
+    const lowStockItems = await Product.countDocuments({ 
+      createdBy: userId,
+      stock: { $lt: 10, $gt: 0 }
+    });
+    
+    // Mock recent views (you can implement proper analytics later)
+    const recentViews = Math.floor(Math.random() * 1000) + 500;
+    
+    res.json({
+      success: true,
+      data: {
+        totalProducts,
+        totalRevenue,
+        totalOrders,
+        pendingOrders,
+        lowStockItems,
+        recentViews
+      }
+    });
+  } catch (error) {
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch dashboard statistics'
+    });
+  }
+};
+
+// Recent Orders
+const getRecentOrders = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get admin's products
+    const adminProducts = await Product.find({ createdBy: userId }).select('_id name');
+    const productIds = adminProducts.map(p => p._id);
+    
+    // Get recent orders containing admin's products
+    const orders = await Order.find({ 
+      'items.product': { $in: productIds } 
+    })
+    .populate('user', 'name email')
+    .populate('items.product', 'name price')
+    .sort({ createdAt: -1 })
+    .limit(10);
+    
+    const recentOrders = orders.map(order => ({
+      id: order._id,
+      customerName: order.user.name,
+      customerEmail: order.user.email,
+      productName: order.items.map(item => item.product.name).join(', '),
+      amount: order.totalAmount,
+      status: order.status,
+      date: order.createdAt
+    }));
+    
+    res.json({
+      success: true,
+      data: recentOrders
+    });
+  } catch (error) {
+    console.error('Recent orders error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent orders'
+    });
+  }
+};
+
+// Admin Notifications
+const getNotifications = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Mock notifications (implement proper notification system later)
+    const notifications = [
+      {
+        id: 1,
+        message: 'New order received for your product',
+        time: '5 minutes ago',
+        read: false,
+        type: 'order'
+      },
+      {
+        id: 2,
+        message: 'Product inventory running low',
+        time: '2 hours ago',
+        read: false,
+        type: 'inventory'
+      },
+      {
+        id: 3,
+        message: 'Payment received for order #12345',
+        time: '1 day ago',
+        read: true,
+        type: 'payment'
+      }
+    ];
+    
+    res.json({
+      success: true,
+      data: notifications
+    });
+  } catch (error) {
+    console.error('Notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch notifications'
+    });
+  }
+};
+
+// Mark Notification as Read
+const markNotificationRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Mock implementation - in real app, update notification in database
+    res.json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (error) {
+    console.error('Mark notification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark notification as read'
+    });
+  }
+};
+
+// Get All Orders (Admin View)
+const getAllOrders = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get admin's products
+    const adminProducts = await Product.find({ createdBy: userId }).select('_id');
+    const productIds = adminProducts.map(p => p._id);
+    
+    // Get all orders containing admin's products
+    const orders = await Order.find({ 
+      'items.product': { $in: productIds } 
+    })
+    .populate('user', 'name email')
+    .populate('items.product', 'name price')
+    .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      data: orders
+    });
+  } catch (error) {
+    console.error('Get all orders error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch orders'
+    });
+  }
+};
+
+// Update Order Status
+const updateOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+    
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    
+    order.status = status;
+    await order.save();
+    
+    res.json({
+      success: true,
+      message: 'Order status updated successfully',
+      data: order
+    });
+  } catch (error) {
+    console.error('Update order status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update order status'
+    });
+  }
+};
+
+// Get Low Stock Products
+const getLowStockProducts = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    const lowStockProducts = await Product.find({
+      createdBy: userId,
+      stock: { $lt: 10, $gt: 0 }
+    }).sort({ stock: 1 });
+    
+    res.json({
+      success: true,
+      data: lowStockProducts
+    });
+  } catch (error) {
+    console.error('Low stock products error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch low stock products'
+    });
+  }
+};
+
+// Product Analytics
+const getProductAnalytics = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get admin's products with basic analytics
+    const products = await Product.find({ createdBy: userId });
+    
+    // Mock analytics data (implement proper analytics later)
+    const analytics = products.map(product => ({
+      ...product.toObject(),
+      views: Math.floor(Math.random() * 100) + 10,
+      sales: Math.floor(Math.random() * 50) + 1,
+      revenue: Math.floor(Math.random() * 1000) + 100
+    }));
+    
+    res.json({
+      success: true,
+      data: analytics
+    });
+  } catch (error) {
+    console.error('Product analytics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch product analytics'
+    });
+  }
+};
+
+// Get All Users (Admin Only)
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({})
+      .select('-password')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      data: users
+    });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch users'
+    });
+  }
+};
+
+// Update User Status
+const updateUserStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    user.status = status;
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'User status updated successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status'
+    });
+  }
+};
+
+// Get Settings
+const getSettings = async (req, res) => {
+  try {
+    // Mock settings (implement proper settings system later)
+    const settings = {
+      notifications: {
+        email: true,
+        sms: false,
+        push: true
+      },
+      dashboard: {
+        showRevenue: true,
+        showOrders: true,
+        showProducts: true
+      },
+      privacy: {
+        profileVisible: true,
+        contactInfo: false
+      }
+    };
+    
+    res.json({
+      success: true,
+      data: settings
+    });
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch settings'
+    });
+  }
+};
+
+// Update Settings
+const updateSettings = async (req, res) => {
+  try {
+    const { settings } = req.body;
+    
+    // Mock implementation (implement proper settings update later)
+    res.json({
+      success: true,
+      message: 'Settings updated successfully',
+      data: settings
+    });
+  } catch (error) {
+    console.error('Update settings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update settings'
+    });
+  }
+};
+
+
+// Add missing getOrderAnalytics function
+const getOrderAnalytics = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get admin's products
+    const adminProducts = await Product.find({ createdBy: userId }).select('_id');
+    const productIds = adminProducts.map(p => p._id);
+    
+    // Get orders containing admin's products
+    const orders = await Order.find({ 
+      'items.product': { $in: productIds } 
+    });
+    
+    // Calculate analytics
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter(order => order.status === 'completed').length;
+    const pendingOrders = orders.filter(order => order.status === 'pending').length;
+    const cancelledOrders = orders.filter(order => order.status === 'cancelled').length;
+    
+    // Monthly data (last 6 months)
+    const monthlyData = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      
+      const monthOrders = orders.filter(order => 
+        order.createdAt >= month && order.createdAt < nextMonth
+      );
+      
+      monthlyData.push({
+        month: month.toLocaleString('default', { month: 'short', year: 'numeric' }),
+        orders: monthOrders.length,
+        revenue: monthOrders.reduce((sum, order) => sum + order.totalAmount, 0)
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        totalOrders,
+        completedOrders,
+        pendingOrders,
+        cancelledOrders,
+        monthlyData
+      }
+    });
+  } catch (error) {
+    console.error('Order analytics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch order analytics'
+    });
+  }
+};
+
+
 
 module.exports = {
+   getDashboardStats,
+   getOrderAnalytics,
+  getRecentOrders,
+  getNotifications,
+  markNotificationRead,
+  getAllOrders,
+  updateOrderStatus,
+  getLowStockProducts,
+  getProductAnalytics,
+  getAllUsers,
+  updateUserStatus,
+  getSettings,
+  updateSettings,
   getMyProducts,
   getProduct,
   getProductById,

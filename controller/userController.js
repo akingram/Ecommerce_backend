@@ -240,7 +240,14 @@ const deleteCart = async (req, res) => {
   }
 };
 
+
+
 const placeOrder = async (req, res) => {
+  if (!req.user) {
+    return res
+      .status(401)
+      .json({ success: false, message: "You must be logged in to place an order" });
+  }
   try {
     const { products } = req.body;
 
@@ -254,7 +261,6 @@ const placeOrder = async (req, res) => {
     const orderItems = [];
 
     for (const item of products) {
-      // Fixed: Use ProductSchema instead of Product
       const product = await ProductSchema.findById(item.product);
       if (!product) {
         return res
@@ -266,16 +272,23 @@ const placeOrder = async (req, res) => {
       }
 
       totalAmount += product.price * item.quantity;
-      orderItems.push({ product: product._id, quantity: item.quantity });
+      orderItems.push({ 
+        product: product._id, 
+        quantity: item.quantity,
+        price: product.price // Add price to the order item
+      });
     }
 
     const newOrder = new Order({
       user: req.user.id,
-      products: orderItems,
+      items: orderItems, // Changed from 'products' to 'items' to match schema
       totalAmount,
     });
 
     await newOrder.save();
+
+    // Clear user's cart after successful order
+    await CartSchema.deleteOne({ user: req.user.id });
 
     return res
       .status(201)
@@ -293,10 +306,9 @@ const placeOrder = async (req, res) => {
 
 const getUserOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user.id }).populate(
-      "products.product",
-      "name price"
-    );
+    const orders = await Order.find({ user: req.user.id })
+      .populate("items.product", "name price image") // Fixed: changed from 'products.product' to 'items.product'
+      .sort({ createdAt: -1 });
 
     return res
       .status(200)
@@ -314,15 +326,21 @@ const getUserOrders = async (req, res) => {
 
 const getOrderById = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate(
-      "products.product",
-      "name price"
-    );
+    const order = await Order.findById(req.params.id)
+      .populate("items.product", "name price image") // Fixed: changed from 'products.product' to 'items.product'
+      .populate("user", "name email");
 
     if (!order) {
       return res
         .status(404)
         .json({ success: false, message: "Order not found" });
+    }
+
+    // Check if this order belongs to the current user (or if user is admin)
+    if (order.user._id.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res
+        .status(403)
+        .json({ success: false, message: "Unauthorized to view this order" });
     }
 
     return res
@@ -334,7 +352,6 @@ const getOrderById = async (req, res) => {
       .json({ success: false, message: "Server error", error: error.message });
   }
 };
-
 // Added the missing payment function
 const payment = async (req, res) => {
   try {
