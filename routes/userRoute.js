@@ -40,6 +40,21 @@ router.delete("/products/:productId", verifyToken, isSellerOrAdmin, adminControl
 // Get products posted by the current admin/seller
 router.get("/admin/my-products", verifyToken, isSellerOrAdmin, adminController.getMyProducts);
 
+// ===================== SELLER DASHBOARD ROUTES =====================
+// These are the missing routes that your frontend is trying to access
+
+// Get seller sales data
+router.get("/sellers/:sellerId/sales", verifyToken, isSellerOrAdmin, adminController.getSellerSales);
+
+// Get seller orders
+router.get("/sellers/:sellerId/orders", verifyToken, isSellerOrAdmin, adminController.getSellerOrders);
+
+// Get seller products (dashboard view)
+router.get("/sellers/:sellerId/products", verifyToken, isSellerOrAdmin, adminController.getSellerProducts);
+
+// Get seller dashboard stats (all-in-one endpoint)
+router.get("/sellers/:sellerId/dashboard", verifyToken, isSellerOrAdmin, adminController.getSellerDashboard);
+
 // ===================== Category Routes (Admin Only) =====================
 router.get("/admin/categories", verifyToken, isAdmin, adminController.getCategory);
 router.post("/admin/categories", verifyToken, isAdmin, adminController.postCategory);
@@ -62,7 +77,6 @@ router.get("/payment/callback", paymentController.callBack);
 
 // Optional: Keep a simple payment endpoint in user controller for basic info
 router.get("/payment/info", verifyToken, userController.payment);
-
 
 // ===================== Admin Dashboard Routes =====================
 

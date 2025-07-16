@@ -891,7 +891,341 @@ const getOrderAnalytics = async (req, res) => {
 
 
 
+// Get seller sales data
+const getSellerSales = async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+    
+    // Verify the seller can only access their own data
+    if (req.user._id.toString() !== sellerId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access denied" 
+      });
+    }
+
+    // Get seller's products
+    const sellerProducts = await Product.find({ seller: sellerId });
+    const productIds = sellerProducts.map(p => p._id);
+
+    // Get orders containing seller's products
+    const orders = await Order.find({
+      'items.product': { $in: productIds },
+      status: { $ne: 'cancelled' }
+    }).populate('items.product');
+
+    // Calculate sales metrics
+    let totalSales = 0;
+    let totalOrders = 0;
+    let monthlyRevenue = 0;
+    const salesTrend = [];
+
+    // Process orders to calculate seller-specific metrics
+    orders.forEach(order => {
+      const sellerItems = order.items.filter(item => 
+        productIds.some(id => id.toString() === item.product._id.toString())
+      );
+      
+      if (sellerItems.length > 0) {
+        totalOrders++;
+        const orderSellerTotal = sellerItems.reduce((sum, item) => 
+          sum + (item.price * item.quantity), 0
+        );
+        totalSales += orderSellerTotal;
+        
+        // Add to monthly revenue if order is from current month
+        const currentMonth = new Date().getMonth();
+        const orderMonth = new Date(order.createdAt).getMonth();
+        if (orderMonth === currentMonth) {
+          monthlyRevenue += orderSellerTotal;
+        }
+      }
+    });
+
+    // Generate sales trend (last 6 months)
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentDate = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      const monthName = months[monthDate.getMonth()];
+      
+      const monthOrders = orders.filter(order => {
+        const orderDate = new Date(order.createdAt);
+        return orderDate.getMonth() === monthDate.getMonth() && 
+               orderDate.getFullYear() === monthDate.getFullYear();
+      });
+      
+      const monthSales = monthOrders.reduce((sum, order) => {
+        const sellerItems = order.items.filter(item => 
+          productIds.some(id => id.toString() === item.product._id.toString())
+        );
+        return sum + sellerItems.reduce((itemSum, item) => 
+          itemSum + (item.price * item.quantity), 0
+        );
+      }, 0);
+      
+      salesTrend.push({
+        month: monthName,
+        sales: monthSales
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalSales,
+        totalOrders,
+        monthlyRevenue,
+        salesTrend
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching seller sales:', error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+// Get seller orders
+const getSellerOrders = async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+    
+    // Verify the seller can only access their own data
+    if (req.user._id.toString() !== sellerId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access denied" 
+      });
+    }
+
+    // Get seller's products
+    const sellerProducts = await Product.find({ seller: sellerId });
+    const productIds = sellerProducts.map(p => p._id);
+
+    // Get orders containing seller's products
+    const orders = await Order.find({
+      'items.product': { $in: productIds }
+    }).populate('items.product').populate('user', 'name email').sort({ createdAt: -1 });
+
+    // Filter and format orders for seller
+    const recentOrders = orders.map(order => {
+      const sellerItems = order.items.filter(item => 
+        productIds.some(id => id.toString() === item.product._id.toString())
+      );
+      
+      if (sellerItems.length > 0) {
+        const sellerTotal = sellerItems.reduce((sum, item) => 
+          sum + (item.price * item.quantity), 0
+        );
+        
+        return {
+          id: order._id,
+          customerName: order.user.name,
+          customerEmail: order.user.email,
+          date: order.createdAt,
+          total: sellerTotal,
+          status: order.status,
+          items: sellerItems
+        };
+      }
+      return null;
+    }).filter(order => order !== null);
+
+    // Count pending orders
+    const pendingOrders = recentOrders.filter(order => order.status === 'pending').length;
+
+    res.json({
+      success: true,
+      data: {
+        recentOrders: recentOrders.slice(0, 10), // Return latest 10
+        pendingOrders
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching seller orders:', error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+// Get seller products with sales data
+const getSellerProducts = async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+    
+    // Verify the seller can only access their own data
+    if (req.user._id.toString() !== sellerId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access denied" 
+      });
+    }
+
+    // Get seller's products
+    const products = await Product.find({ seller: sellerId }).populate('category');
+    const productIds = products.map(p => p._id);
+
+    // Get orders to calculate sales for each product
+    const orders = await Order.find({
+      'items.product': { $in: productIds },
+      status: { $ne: 'cancelled' }
+    }).populate('items.product');
+
+    // Calculate sales for each product
+    const productSales = {};
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        if (productIds.some(id => id.toString() === item.product._id.toString())) {
+          const productId = item.product._id.toString();
+          if (!productSales[productId]) {
+            productSales[productId] = 0;
+          }
+          productSales[productId] += item.quantity;
+        }
+      });
+    });
+
+    // Format products with sales data
+    const topProducts = products.map(product => ({
+      id: product._id,
+      name: product.name,
+      category: product.category ? product.category.name : 'Uncategorized',
+      price: product.price,
+      sold: productSales[product._id.toString()] || 0,
+      stock: product.stock,
+      status: product.status
+    })).sort((a, b) => b.sold - a.sold);
+
+    res.json({
+      success: true,
+      data: {
+        totalProducts: products.length,
+        topProducts
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching seller products:', error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+// Get all seller dashboard data in one request
+const getSellerDashboard = async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+    
+    // Verify the seller can only access their own data
+    if (req.user._id.toString() !== sellerId && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access denied" 
+      });
+    }
+
+    // Get seller's products
+    const sellerProducts = await Product.find({ seller: sellerId }).populate('category');
+    const productIds = sellerProducts.map(p => p._id);
+
+    // Get orders containing seller's products
+    const orders = await Order.find({
+      'items.product': { $in: productIds }
+    }).populate('items.product').populate('user', 'name email').sort({ createdAt: -1 });
+
+    // Calculate all metrics
+    let totalSales = 0;
+    let totalOrders = 0;
+    let monthlyRevenue = 0;
+    let pendingOrders = 0;
+    const recentOrders = [];
+    const productSales = {};
+
+    // Process orders
+    orders.forEach(order => {
+      const sellerItems = order.items.filter(item => 
+        productIds.some(id => id.toString() === item.product._id.toString())
+      );
+      
+      if (sellerItems.length > 0) {
+        totalOrders++;
+        const orderSellerTotal = sellerItems.reduce((sum, item) => {
+          const productId = item.product._id.toString();
+          if (!productSales[productId]) {
+            productSales[productId] = 0;
+          }
+          productSales[productId] += item.quantity;
+          return sum + (item.price * item.quantity);
+        }, 0);
+        
+        totalSales += orderSellerTotal;
+        
+        if (order.status === 'pending') {
+          pendingOrders++;
+        }
+        
+        // Add to monthly revenue if order is from current month
+        const currentMonth = new Date().getMonth();
+        const orderMonth = new Date(order.createdAt).getMonth();
+        if (orderMonth === currentMonth) {
+          monthlyRevenue += orderSellerTotal;
+        }
+        
+        // Add to recent orders
+        if (recentOrders.length < 10) {
+          recentOrders.push({
+            id: order._id,
+            customerName: order.user.name,
+            date: order.createdAt,
+            total: orderSellerTotal,
+            status: order.status
+          });
+        }
+      }
+    });
+
+    // Top products
+    const topProducts = sellerProducts.map(product => ({
+      name: product.name,
+      category: product.category ? product.category.name : 'Uncategorized',
+      price: product.price,
+      sold: productSales[product._id.toString()] || 0
+    })).sort((a, b) => b.sold - a.sold).slice(0, 5);
+
+    res.json({
+      success: true,
+      data: {
+        totalSales,
+        totalOrders,
+        totalProducts: sellerProducts.length,
+        pendingOrders,
+        monthlyRevenue,
+        recentOrders,
+        topProducts
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching seller dashboard:', error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+
 module.exports = {
+   getSellerSales,
+  getSellerOrders,
+  getSellerProducts,
+  getSellerDashboard,
    getDashboardStats,
    getOrderAnalytics,
   getRecentOrders,
